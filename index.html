@@ -94,6 +94,24 @@
     nav .ico{display:block;font-size:20px;margin-bottom:2px}
     .hidden{display:none !important}
     textarea{width:100%;min-height:90px;border:1px solid var(--line);border-radius:12px;padding:10px}
+
+    .time-strip{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:9px}
+    .time-chip{font-size:12px;font-weight:800;border-radius:999px;padding:7px 10px;background:#f3f4f6;color:#374151}
+    .rest-timer{
+      position:sticky;top:86px;z-index:18;margin:10px 14px 0;
+      background:#111827;color:white;border-radius:16px;padding:12px 14px;
+      box-shadow:0 8px 20px rgba(17,24,39,.18)
+    }
+    .rest-timer .timer-main{display:flex;align-items:center;justify-content:space-between;gap:12px}
+    .rest-timer .timer-value{font-size:30px;font-weight:900;letter-spacing:.03em}
+    .rest-timer .timer-label{font-size:12px;color:#d1d5db}
+    .rest-actions{display:flex;gap:7px;flex-wrap:wrap}
+    .rest-actions button{border:0;border-radius:10px;padding:8px 10px;font-weight:800}
+    .rest-actions .light{background:white;color:#111827}
+    .rest-actions .dark{background:#374151;color:white}
+    .timer-progress{height:5px;background:#374151;border-radius:99px;overflow:hidden;margin-top:9px}
+    .timer-progress span{display:block;height:100%;background:white;width:100%}
+
     @media(max-width:430px){
       .set-row{grid-template-columns:34px 1fr 1fr 42px;padding-left:10px;padding-right:10px}
       .profile-switch button{padding:7px 11px}
@@ -106,11 +124,11 @@
     <div class="row between">
       <div>
         <h1>Gym Progress</h1>
-        <div class="tiny muted">Wade & Jenny</div>
+        <div class="tiny muted">Wade & Jenni</div>
       </div>
       <div class="profile-switch">
         <button id="profileWade" onclick="setProfile('Wade')">Wade</button>
-        <button id="profileJenny" onclick="setProfile('Jenny')">Jenny</button>
+        <button id="profileJenni" onclick="setProfile('Jenni')">Jenni</button>
       </div>
     </div>
   </header>
@@ -124,12 +142,29 @@
             <div id="dateLabel" class="muted tiny"></div>
             <div id="workoutTitle" class="day-title"></div>
             <div id="goalPill" class="pill" style="margin-top:7px"></div>
+            <div class="time-strip">
+              <span id="estimatedTime" class="time-chip">Estimated: —</span>
+              <span id="restPlan" class="time-chip">Rest: —</span>
+            </div>
           </div>
           <button class="arrow" onclick="changeDay(1)">›</button>
         </div>
         <div class="progress"><span id="dayProgress"></span></div>
         <div id="progressText" class="tiny muted" style="margin-top:5px;text-align:right"></div>
       </div>
+    </div>
+    <div id="restTimer" class="rest-timer hidden" aria-live="polite">
+      <div class="timer-main">
+        <div>
+          <div class="timer-label">REST BEFORE NEXT SET</div>
+          <div id="timerValue" class="timer-value">01:30</div>
+        </div>
+        <div class="rest-actions">
+          <button class="dark" type="button" onclick="adjustTimer(30)">+30 sec</button>
+          <button class="light" type="button" onclick="skipTimer()">Skip</button>
+        </div>
+      </div>
+      <div class="timer-progress"><span id="timerProgress"></span></div>
     </div>
     <div class="content">
       <div id="activeHeading" class="section-title">Today's exercises</div>
@@ -179,7 +214,7 @@
       <div class="card settings">
         <label>Profile</label>
         <select id="settingsProfile" onchange="setProfile(this.value)">
-          <option>Wade</option><option>Jenny</option>
+          <option>Wade</option><option>Jenni</option>
         </select>
         <label>Default weight increase</label>
         <select id="defaultIncrement" onchange="saveSettings()">
@@ -271,7 +306,7 @@ const programs = {
       ex("Foam Roll",1,"10 min","time",0)
     ]}
   },
-  Jenny: {
+  Jenni: {
     0:{title:"Sunday – Recovery",goal:"Recover • Prepare",exercises:[
       ex("Easy Walk",1,"20–30 min","time",0),
       ex("Light Stretch",1,"10 min","time",0),
@@ -320,11 +355,53 @@ const programs = {
   }
 };
 
-function ex(name,sets,target,type,increment){return {name,sets,target,type,increment}}
+function ex(name,sets,target,type,increment,rest){
+  return {name,sets,target,type,increment,rest:rest || defaultRest(name,type)};
+}
+function defaultRest(name,type){
+  if(type!=="reps") return 30;
+  const n=name.toLowerCase();
+  if(n.includes("leg press")||n.includes("deadlift")||n.includes("chest press")||n.includes("lat pulldown")||n.includes("row")||n.includes("shoulder press")||n.includes("hip thrust")) return 90;
+  if(n.includes("lunge")||n.includes("curl")||n.includes("extension")||n.includes("pushdown")||n.includes("fly")||n.includes("raise")) return 60;
+  return 60;
+}
+function estimatedMinutes(workout){
+  let mins=0;
+  workout.exercises.forEach(e=>{
+    if(e.type==="time"){
+      const nums=String(e.target).match(/\d+/g);
+      mins += nums ? Number(nums[nums.length-1]) : 5;
+    }else if(e.type==="done"){
+      mins += 2;
+    }else{
+      mins += e.sets * 0.75;
+      mins += Math.max(0,e.sets-1) * (e.rest||60)/60;
+      mins += 0.75;
+    }
+  });
+  return Math.max(5,Math.round(mins/5)*5);
+}
 
-let profile = localStorage.getItem("gymProfile") || "Jenny";
+
+function migrateOldJennyData(){
+  if(localStorage.getItem("gymProfile")==="Jenny") localStorage.setItem("gymProfile","Jenni");
+  const keys=Object.keys(localStorage);
+  keys.forEach(k=>{
+    if(k.includes(":Jenny")){
+      const nk=k.replace(":Jenny",":Jenni");
+      if(localStorage.getItem(nk)==null) localStorage.setItem(nk,localStorage.getItem(k));
+    }
+  });
+}
+migrateOldJennyData();
+
+let profile = localStorage.getItem("gymProfile") || "Jenni";
 let selectedDate = new Date();
 let activeTab = "today";
+let restInterval = null;
+let restRemaining = 0;
+let restTotal = 0;
+let restEndsAt = 0;
 
 function isoDate(d){
   const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), day=String(d.getDate()).padStart(2,'0');
@@ -340,10 +417,51 @@ function loadState(){
 }
 function saveState(s){ localStorage.setItem(stateKey(),JSON.stringify(s)); }
 
+
+function formatTimer(sec){
+  sec=Math.max(0,Math.ceil(sec));
+  return `${String(Math.floor(sec/60)).padStart(2,"0")}:${String(sec%60).padStart(2,"0")}`;
+}
+function startRestTimer(seconds){
+  clearInterval(restInterval);
+  restTotal=Math.max(1,Number(seconds)||60);
+  restRemaining=restTotal;
+  restEndsAt=Date.now()+restTotal*1000;
+  const box=document.getElementById("restTimer");
+  box.classList.remove("hidden");
+  updateTimerDisplay();
+  restInterval=setInterval(()=>{
+    restRemaining=Math.max(0,Math.ceil((restEndsAt-Date.now())/1000));
+    updateTimerDisplay();
+    if(restRemaining<=0){
+      clearInterval(restInterval);
+      restInterval=null;
+      if(navigator.vibrate) navigator.vibrate([120,80,120]);
+      document.getElementById("timerValue").textContent="GO";
+      setTimeout(()=>document.getElementById("restTimer").classList.add("hidden"),1800);
+    }
+  },250);
+}
+function updateTimerDisplay(){
+  document.getElementById("timerValue").textContent=formatTimer(restRemaining);
+  const pct=restTotal?Math.max(0,Math.min(100,(restRemaining/restTotal)*100)):0;
+  document.getElementById("timerProgress").style.width=pct+"%";
+}
+function adjustTimer(sec){
+  restRemaining=Math.max(0,restRemaining+sec);
+  restTotal=Math.max(restTotal,restRemaining);
+  restEndsAt=Date.now()+restRemaining*1000;
+  updateTimerDisplay();
+}
+function skipTimer(){
+  clearInterval(restInterval); restInterval=null; restRemaining=0;
+  document.getElementById("restTimer").classList.add("hidden");
+}
+
 function setProfile(p){
   profile=p; localStorage.setItem("gymProfile",p);
   document.getElementById("profileWade").classList.toggle("active",p==="Wade");
-  document.getElementById("profileJenny").classList.toggle("active",p==="Jenny");
+  document.getElementById("profileJenni").classList.toggle("active",p==="Jenni");
   document.getElementById("settingsProfile").value=p;
   loadSettingsUI();
   renderAll();
@@ -425,6 +543,10 @@ function renderToday(){
   document.getElementById("dateLabel").textContent=selectedDate.toLocaleDateString(undefined,{weekday:"long",day:"numeric",month:"long"});
   document.getElementById("workoutTitle").textContent=w.title;
   document.getElementById("goalPill").textContent=w.goal;
+  document.getElementById("estimatedTime").textContent=`Estimated: ~${estimatedMinutes(w)} min`;
+  const weighted=w.exercises.filter(e=>e.type==="reps");
+  const rests=[...new Set(weighted.map(e=>e.rest))].sort((a,b)=>a-b);
+  document.getElementById("restPlan").textContent=rests.length ? `Rest: ${rests.map(s=>s+"s").join(" / ")}` : "Rest: as needed";
 
   const state=loadState();
   document.getElementById("dayNotes").value=state.notes||"";
@@ -450,7 +572,7 @@ function renderToday(){
 
     const sugg=weightSuggestion(def);
     let head=`<div class="card-head"><div class="exercise-name">${def.name}</div>
-      <div class="exercise-meta">${def.sets} set${def.sets>1?"s":""} • target ${def.target}</div>`;
+      <div class="exercise-meta">${def.sets} set${def.sets>1?"s":""} • target <b>${def.target}</b> • rest ${def.rest||"—"} sec</div>`;
     if(sugg) head+=`<div class="suggest">⬆ Ready to increase: last successful weight <b>${sugg.base} kg</b>. Suggested today: <b>${sugg.suggested} kg</b>.
       <button onclick="applySuggested(${idx},${sugg.suggested})" style="margin-left:6px;border:0;border-radius:8px;padding:5px 8px;font-weight:800">Use ${sugg.suggested}</button></div>`;
     head+=`</div>`;
@@ -488,7 +610,18 @@ function renderToday(){
 
 function updateSet(i,s,field,val){
   const state=loadState(), def=currentWorkout().exercises[i], es=ensureExerciseState(state,def,i);
-  es.sets[s][field]=val; saveState(state);
+  es.sets[s][field]=val;
+  if(field==="done" && val===true){
+    const currentWeight=es.sets[s].weight;
+    if(def.type==="reps" && currentWeight!=="" && s+1<es.sets.length && (es.sets[s+1].weight==="" || es.sets[s+1].weight==null)){
+      es.sets[s+1].weight=currentWeight;
+    }
+    saveState(state);
+    if(s+1<es.sets.length) startRestTimer(def.rest||60);
+    renderToday();
+    return;
+  }
+  saveState(state);
 }
 function setDifficulty(i,val){
   const state=loadState(), def=currentWorkout().exercises[i], es=ensureExerciseState(state,def,i);
@@ -505,6 +638,8 @@ function completeExercise(i){
   }
   es.done=true; saveState(state);
   archiveIfWorkoutComplete(state);
+  const stillActive=currentWorkout().exercises.some((d,idx)=>idx!==i && !state.exercises[idx]?.done);
+  if(stillActive) startRestTimer(60);
   renderToday();
 }
 function reopenExercise(i){
@@ -617,7 +752,7 @@ function renderAll(){
 }
 function setProfileButtons(){
   document.getElementById("profileWade").classList.toggle("active",profile==="Wade");
-  document.getElementById("profileJenny").classList.toggle("active",profile==="Jenny");
+  document.getElementById("profileJenni").classList.toggle("active",profile==="Jenni");
   document.getElementById("settingsProfile").value=profile;
 }
 
